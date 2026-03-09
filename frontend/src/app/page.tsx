@@ -4,7 +4,10 @@ import { useState, useEffect, useCallback } from "react";
 import Navbar from "@/components/Navbar";
 import Dashboard from "@/components/Dashboard";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Vacío o "PROXY" en Vercel = usar proxy same-origin (/api/*) y evitar CORS
+const raw = process.env.NEXT_PUBLIC_API_URL ?? "";
+const API_URL =
+  raw === "" || raw.toUpperCase() === "PROXY" ? "" : raw || "http://localhost:8000";
 
 export default function Home() {
   /* eslint-disable @typescript-eslint/no-explicit-any */

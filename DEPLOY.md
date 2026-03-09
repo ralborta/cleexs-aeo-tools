@@ -60,15 +60,16 @@ Opciones para que el build en Railway funcione:
 1. Entra en [vercel.com](https://vercel.com) y conecta el mismo repo del proyecto.
 2. Al crear el proyecto, en **Root Directory** elige: `frontend`.
 
-### 2.2 Variable de entorno
+### 2.2 Variables de entorno (evitar CORS con proxy)
 
 En el proyecto de Vercel: **Settings** → **Environment Variables**:
 
 | Name | Value |
 |------|--------|
-| `NEXT_PUBLIC_API_URL` | URL pública del backend en Railway (ej. `https://xxx.up.railway.app`) |
+| `NEXT_PUBLIC_API_URL` | Dejar **vacío** (empty) para usar proxy same-origin y evitar CORS. |
+| `BACKEND_URL` | URL del backend en Railway (ej. `https://cleexs-aeo-tools-production.up.railway.app`) |
 
-Sin `/` al final. Aplícala a Production (y Preview si quieres).
+El frontend llama a `/api/...` (mismo origen); Next.js reescribe esas peticiones a `BACKEND_URL/api/...`. Sin `/` al final en `BACKEND_URL`. Aplícalo a Production (y Preview si quieres).
 
 ### 2.3 Deploy
 
