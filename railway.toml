@@ -6,6 +6,7 @@ dockerfilePath = "Dockerfile"
 watchPatterns = ["Dockerfile", ".dockerignore", "railway.toml", "backend/**"]
 
 [deploy]
-startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+# Usar shell para que $PORT se expanda (Railway a veces no lo hace)
+startCommand = "sh -c 'uvicorn main:app --host 0.0.0.0 --port ${PORT}'"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
