@@ -1,5 +1,5 @@
 # Build backend desde la raíz del repo (Railway sin Root Directory)
-# Railway: Root Directory vacío, builder DOCKERFILE
+# Railway: Root Directory vacío, builder DOCKERFILE. SKIP_DB=1 en Variables.
 FROM python:3.11-slim
 
 WORKDIR /app

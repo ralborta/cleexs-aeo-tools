@@ -1,4 +1,4 @@
-# Config en raíz: Railway construye con Dockerfile (backend) cuando Root Directory está vacío
+# Config en raíz: Railway construye con Dockerfile (backend). Root Directory vacío.
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
