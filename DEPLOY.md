@@ -40,12 +40,11 @@ Referencia de nombres en código: `backend/.env.example`.
 
 ### 1.4 Build y deploy
 
-El backend incluye varias opciones para que Railway construya bien:
+Opciones para que el build en Railway funcione:
 
-- **Railpack (por defecto):** `runtime.txt`, `Procfile` y `railway.toml` ayudan a que detecte Python y el comando de arranque.
-- **Si falla "Error creating build plan with Railpack":** en el servicio backend → **Settings** → **Build** → **Builder** elige **Dockerfile**. El `Dockerfile` en `backend/` construye la imagen y arranca con `uvicorn`.
-
-Root Directory del servicio debe ser **`backend`** en ambos casos.
+- **Recomendado (evita "Error reading backend"):** Builder **Dockerfile** y **Root Directory vacío** (raíz del repo). En la raíz hay un `Dockerfile` que copia `backend/` y construye la app. Así Railway no tiene que "leer" el directorio `backend` como raíz.
+- **Alternativa:** Builder **Dockerfile** y Root Directory **`backend`**. Usa el `Dockerfile` que está dentro de `backend/`.
+- **Railpack:** Root Directory **`backend`** y builder por defecto. Si falla "Error creating build plan with Railpack", usa una de las opciones con Dockerfile de arriba.
 
 ### 1.5 Dominio público
 

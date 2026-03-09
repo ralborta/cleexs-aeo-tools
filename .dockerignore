@@ -1,0 +1,8 @@
+# Solo construimos el backend; no enviar frontend ni resto
+frontend/
+.git/
+.gitignore
+*.md
+.env
+.env.*
+.DS_Store
