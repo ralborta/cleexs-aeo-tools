@@ -38,11 +38,19 @@ En el servicio **backend** (FastAPI), en **Variables**, añade:
 
 Referencia de nombres en código: `backend/.env.example`.
 
-### 1.4 Deploy y dominio público
+### 1.4 Build y deploy
 
-1. Railway suele detectar Python y usar el `railway.toml` del backend (comando: `uvicorn main:app --host 0.0.0.0 --port $PORT`).
-2. En el servicio backend: **Settings** → **Networking** → **Generate Domain**. Copia la URL (ej. `https://xxx.up.railway.app`).
-3. Esa URL es tu **API base** para el frontend.
+El backend incluye varias opciones para que Railway construya bien:
+
+- **Railpack (por defecto):** `runtime.txt`, `Procfile` y `railway.toml` ayudan a que detecte Python y el comando de arranque.
+- **Si falla "Error creating build plan with Railpack":** en el servicio backend → **Settings** → **Build** → **Builder** elige **Dockerfile**. El `Dockerfile` en `backend/` construye la imagen y arranca con `uvicorn`.
+
+Root Directory del servicio debe ser **`backend`** en ambos casos.
+
+### 1.5 Dominio público
+
+1. En el servicio backend: **Settings** → **Networking** → **Generate Domain**. Copia la URL (ej. `https://xxx.up.railway.app`).
+2. Esa URL es tu **API base** para el frontend (Vercel).
 
 ---
 
