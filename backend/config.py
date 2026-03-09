@@ -31,3 +31,6 @@ MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
 
 # Monitoring notifications
 WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
+
+# Omitir DB (para pruebas; luego se puede cambiar a PostgreSQL)
+SKIP_DB = os.getenv("SKIP_DB", "").lower() in ("1", "true", "yes")

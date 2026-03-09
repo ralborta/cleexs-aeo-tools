@@ -10,7 +10,14 @@ from typing import Optional
 import aiomysql
 from datetime import datetime, timezone
 
-from config import MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD
+from config import (
+    MYSQL_HOST,
+    MYSQL_PORT,
+    MYSQL_DATABASE,
+    MYSQL_USER,
+    MYSQL_PASSWORD,
+    SKIP_DB,
+)
 
 _pool: Optional[aiomysql.Pool] = None
 
@@ -33,7 +40,9 @@ async def _get_pool() -> aiomysql.Pool:
 
 
 async def init_db():
-    """Create database (if not exists) and tables."""
+    """Create database (if not exists) and tables. No-op if SKIP_DB=1."""
+    if SKIP_DB:
+        return
     # First connect without specifying a database to create it
     conn = await aiomysql.connect(
         host=MYSQL_HOST,
@@ -70,7 +79,9 @@ async def init_db():
 
 
 async def save_analysis(url: str, domain: str, overall_score: int, results: dict):
-    """Save a full analysis result."""
+    """Save a full analysis result. No-op if SKIP_DB=1."""
+    if SKIP_DB:
+        return
     pool = await _get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
@@ -82,7 +93,9 @@ async def save_analysis(url: str, domain: str, overall_score: int, results: dict
 
 
 async def get_history(limit: int = 50) -> list:
-    """Get recent analysis history."""
+    """Get recent analysis history. Returns [] if SKIP_DB=1."""
+    if SKIP_DB:
+        return []
     pool = await _get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -95,7 +108,9 @@ async def get_history(limit: int = 50) -> list:
 
 
 async def get_analysis(analysis_id: int) -> Optional[dict]:
-    """Get a full analysis result by ID."""
+    """Get a full analysis result by ID. Returns None if SKIP_DB=1."""
+    if SKIP_DB:
+        return None
     pool = await _get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -113,7 +128,9 @@ async def get_analysis(analysis_id: int) -> Optional[dict]:
 
 
 async def get_domain_history(domain: str, limit: int = 20) -> list:
-    """Get analysis history for a specific domain."""
+    """Get analysis history for a specific domain. Returns [] if SKIP_DB=1."""
+    if SKIP_DB:
+        return []
     pool = await _get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:

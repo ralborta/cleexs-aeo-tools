@@ -33,6 +33,7 @@ En el servicio **backend** (FastAPI), en **Variables**, añade:
 | `MYSQL_DATABASE` | Nombre de la base |
 | `MYSQL_USER` | Usuario MySQL |
 | `MYSQL_PASSWORD` | Contraseña MySQL |
+| `SKIP_DB` | `1` o `true` para **omitir DB** (pruebas sin MySQL; luego se puede cambiar a PostgreSQL). |
 
 (Opcional: `WEBHOOK_URL` para notificaciones.)
 
