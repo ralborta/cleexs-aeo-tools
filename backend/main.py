@@ -16,6 +16,7 @@ from tools.tool8_content_freshness import ContentFreshnessChecker
 from tools.tool9_ai_overview import AIOverviewChecker
 from tools.tool10_duplicate_content import DuplicateContentFinder
 from database import init_db, save_analysis, get_history, get_analysis, get_domain_history
+from config import SKIP_DB
 
 app = FastAPI(title="Cleexs Tools - All-in-One AEO Analyzer")
 
@@ -50,6 +51,12 @@ class RobotsGenRequest(BaseModel):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/status")
+async def api_status():
+    """Para comprobar que el backend está vivo y SKIP_DB está activo."""
+    return {"status": "ok", "skip_db": SKIP_DB}
 
 
 # ─── Full Analysis (all tools at once) ───
