@@ -1,13 +1,12 @@
 """
 MySQL database for storing analysis results.
-Uses aiomysql for async access.
-Auto-creates database and tables on startup.
+Uses aiomysql for async access when SKIP_DB is not set.
+With SKIP_DB=1, aiomysql is not imported (evita fallos de dependencia en Railway).
 """
 
 import json
-from typing import Optional
+from typing import Optional, Any
 
-import aiomysql
 from datetime import datetime, timezone
 
 from config import (
@@ -19,12 +18,19 @@ from config import (
     SKIP_DB,
 )
 
-_pool: Optional[aiomysql.Pool] = None
+_pool: Optional[Any] = None
 
 
-async def _get_pool() -> aiomysql.Pool:
+def _get_aiomysql():
+    """Import aiomysql solo cuando se usa DB (evita fallo al arrancar con SKIP_DB=1)."""
+    import aiomysql
+    return aiomysql
+
+
+async def _get_pool():
     global _pool
     if _pool is None:
+        aiomysql = _get_aiomysql()
         _pool = await aiomysql.create_pool(
             host=MYSQL_HOST,
             port=MYSQL_PORT,
@@ -43,6 +49,7 @@ async def init_db():
     """Create database (if not exists) and tables. No-op if SKIP_DB=1."""
     if SKIP_DB:
         return
+    aiomysql = _get_aiomysql()
     # First connect without specifying a database to create it
     conn = await aiomysql.connect(
         host=MYSQL_HOST,
@@ -98,6 +105,7 @@ async def get_history(limit: int = 50) -> list:
         return []
     pool = await _get_pool()
     async with pool.acquire() as conn:
+        aiomysql = _get_aiomysql()
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
                 "SELECT id, url, domain, overall_score, created_at FROM analyses ORDER BY created_at DESC LIMIT %s",
@@ -112,6 +120,7 @@ async def get_analysis(analysis_id: int) -> Optional[dict]:
     if SKIP_DB:
         return None
     pool = await _get_pool()
+    aiomysql = _get_aiomysql()
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
@@ -132,6 +141,7 @@ async def get_domain_history(domain: str, limit: int = 20) -> list:
     if SKIP_DB:
         return []
     pool = await _get_pool()
+    aiomysql = _get_aiomysql()
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
