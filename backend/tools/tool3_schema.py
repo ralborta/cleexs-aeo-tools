@@ -74,7 +74,10 @@ class SchemaChecker:
             try:
                 async with session.get(url, allow_redirects=True) as resp:
                     if resp.status != 200:
-                        return self._error_result(url, f"HTTP {resp.status}")
+                        msg = f"HTTP {resp.status}"
+                        if resp.status == 403:
+                            msg += " — El sitio puede bloquear peticiones automáticas o desde la nube."
+                        return self._error_result(url, msg)
                     html = await resp.text()
             except Exception as e:
                 return self._error_result(url, str(e)[:200])
