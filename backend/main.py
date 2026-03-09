@@ -22,8 +22,12 @@ app = FastAPI(title="Cleexs Tools - All-in-One AEO Analyzer")
 
 @app.on_event("startup")
 async def startup():
-    await init_db()
+    try:
+        await init_db()
+    except Exception:
+        pass  # App arranca igual; endpoints que usen DB fallarán hasta que MySQL esté bien
 
+# CORS: permitir cualquier origen (Vercel, etc.)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
