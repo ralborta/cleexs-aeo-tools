@@ -49,7 +49,8 @@ class AXPGenerator:
         ) as session:
             try:
                 async with session.get(url, allow_redirects=True) as resp:
-                    if resp.status != 200:
+                    # 200 OK y 202 Accepted son válidos (202 = aceptado, puede haber cuerpo)
+                    if resp.status not in (200, 202):
                         return self._error_result(url, f"HTTP {resp.status}")
                     html = await resp.text()
             except Exception as e:
