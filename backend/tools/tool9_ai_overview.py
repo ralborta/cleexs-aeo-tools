@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 from tools.http_client import create_session
 
 from ai_engines import search_serp, has_api_keys
+from config import SERP_API_KEY, ENABLE_SERP
 
 
 class AIOverviewChecker:
@@ -273,11 +274,18 @@ class AIOverviewChecker:
         suggestions = []
 
         if not keys.get("serp"):
-            suggestions.append({
-                "priority": "info",
-                "message": "Configura SERP_API_KEY para datos reales de Google",
-                "detail": "Sin API key de SerpAPI, no se pueden verificar AI Overviews reales. Agrega SERP_API_KEY en .env.",
-            })
+            if SERP_API_KEY and not ENABLE_SERP:
+                suggestions.append({
+                    "priority": "info",
+                    "message": "SerpAPI está desactivado (ENABLE_SERP=false)",
+                    "detail": "Tienes SERP_API_KEY en Railway, pero el código no usa SerpAPI mientras ENABLE_SERP sea false. En Variables pon ENABLE_SERP=true o borra ENABLE_SERP y vuelve a desplegar.",
+                })
+            else:
+                suggestions.append({
+                    "priority": "info",
+                    "message": "Configura SERP_API_KEY para datos reales de Google",
+                    "detail": "Sin API key de SerpAPI, no se pueden verificar AI Overviews reales. Agrega SERP_API_KEY en el servicio backend de Railway (no solo en MySQL) y redeploy.",
+                })
             return suggestions
 
         aio_rate = impact.get("ai_overview_rate", 0)
