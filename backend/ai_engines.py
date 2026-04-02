@@ -4,11 +4,20 @@ All functions return structured dicts and handle errors gracefully.
 """
 
 import aiohttp
-from config import OPENAI_API_KEY, PERPLEXITY_API_KEY, GEMINI_API_KEY, SERP_API_KEY
+from config import (
+    OPENAI_API_KEY,
+    PERPLEXITY_API_KEY,
+    GEMINI_API_KEY,
+    SERP_API_KEY,
+    ENABLE_PERPLEXITY,
+    ENABLE_SERP,
+)
 
 
 async def query_perplexity(prompt: str, timeout: int = 30) -> dict:
     """Query Perplexity API. Returns response text and source citations."""
+    if not ENABLE_PERPLEXITY:
+        return {"error": "disabled", "text": "", "citations": []}
     if not PERPLEXITY_API_KEY:
         return {"error": "no_api_key", "text": "", "citations": []}
 
@@ -95,6 +104,8 @@ async def query_gemini(prompt: str, timeout: int = 30) -> dict:
 
 async def search_serp(query: str, timeout: int = 30) -> dict:
     """Search Google via SerpAPI. Returns organic results + AI Overview if present."""
+    if not ENABLE_SERP:
+        return {"error": "disabled", "results": [], "ai_overview": None}
     if not SERP_API_KEY:
         return {"error": "no_api_key", "results": [], "ai_overview": None}
 
@@ -161,10 +172,10 @@ def check_brand_mentioned(text: str, brand: str, domain: str) -> dict:
 
 
 def has_api_keys() -> dict:
-    """Check which API keys are configured."""
+    """Check which API keys are configured and not disabled via ENABLE_* flags."""
     return {
         "openai": bool(OPENAI_API_KEY),
-        "perplexity": bool(PERPLEXITY_API_KEY),
+        "perplexity": bool(PERPLEXITY_API_KEY) and ENABLE_PERPLEXITY,
         "gemini": bool(GEMINI_API_KEY),
-        "serp": bool(SERP_API_KEY),
+        "serp": bool(SERP_API_KEY) and ENABLE_SERP,
     }
