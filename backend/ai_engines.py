@@ -3,14 +3,24 @@ Shared module for querying AI engines and SERP APIs.
 All functions return structured dicts and handle errors gracefully.
 """
 
+import json
+
 import aiohttp
 from config import (
     OPENAI_API_KEY,
     PERPLEXITY_API_KEY,
     GEMINI_API_KEY,
+    GEMINI_MODEL,
     SERP_API_KEY,
     ENABLE_PERPLEXITY,
     ENABLE_SERP,
+)
+
+# Secundarios si el modelo principal devuelve 404 / no encontrado (Google renombra modelos con frecuencia)
+_GEMINI_MODEL_FALLBACKS = (
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
 )
 
 
@@ -78,28 +88,103 @@ async def query_openai(prompt: str, timeout: int = 30) -> dict:
             return {"error": str(e)[:200], "text": ""}
 
 
+def _gemini_models_to_try() -> list:
+    """Orden: GEMINI_MODEL si está definido, luego fallbacks sin duplicados."""
+    out = []
+    if GEMINI_MODEL:
+        out.append(GEMINI_MODEL)
+    for m in _GEMINI_MODEL_FALLBACKS:
+        if m not in out:
+            out.append(m)
+    return out
+
+
+def _gemini_should_retry_next_model(status: int, body: str) -> bool:
+    """404/403 de modelo o permiso → probar siguiente id."""
+    if status in (404, 403):
+        return True
+    low = body.lower()
+    if "not found" in low or "not_available" in low or "invalid model" in low:
+        return True
+    if status == 400 and ("model" in low and ("not found" in low or "does not exist" in low)):
+        return True
+    return False
+
+
+def _gemini_extract_text(data: dict) -> tuple:
+    """Devuelve (texto o None, error_corto o None)."""
+    feedback = data.get("promptFeedback") or {}
+    block = feedback.get("blockReason")
+    if block:
+        return None, f"blocked_prompt:{block}"
+
+    cands = data.get("candidates") or []
+    if not cands:
+        return None, "no_candidates"
+
+    cand = cands[0]
+    reason = cand.get("finishReason") or ""
+    if reason and reason not in ("STOP", "MAX_TOKENS", "FINISH_REASON_UNSPECIFIED", ""):
+        if reason in ("SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "RECITATION", "OTHER"):
+            return None, f"blocked_response:{reason}"
+
+    parts = (cand.get("content") or {}).get("parts") or []
+    texts = []
+    for p in parts:
+        if isinstance(p, dict) and p.get("text"):
+            texts.append(p["text"])
+    if texts:
+        return "\n".join(texts), None
+    return None, f"no_text finishReason={reason or '?'}"
+
+
 async def query_gemini(prompt: str, timeout: int = 30) -> dict:
     """Query Google Gemini API. Returns response text."""
     if not GEMINI_API_KEY:
         return {"error": "no_api_key", "text": ""}
 
+    last_error = ""
+    models = _gemini_models_to_try()
+
     async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
-                headers={"Content-Type": "application/json"},
-                json={"contents": [{"parts": [{"text": prompt}]}]},
-                timeout=aiohttp.ClientTimeout(total=timeout),
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    text = data["candidates"][0]["content"]["parts"][0]["text"]
-                    return {"text": text, "error": None}
-                else:
+        for model in models:
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model}:generateContent?key={GEMINI_API_KEY}"
+            )
+            try:
+                async with session.post(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    json={"contents": [{"parts": [{"text": prompt}]}]},
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                ) as resp:
                     body = await resp.text()
-                    return {"error": f"HTTP {resp.status}: {body[:200]}", "text": ""}
-        except Exception as e:
-            return {"error": str(e)[:200], "text": ""}
+                    if resp.status != 200:
+                        last_error = f"{model} HTTP {resp.status}: {body[:280]}"
+                        if _gemini_should_retry_next_model(resp.status, body):
+                            continue
+                        return {"error": last_error[:300], "text": ""}
+
+                    try:
+                        data = json.loads(body)
+                    except json.JSONDecodeError:
+                        last_error = f"{model}: invalid JSON"
+                        continue
+
+                    text, err = _gemini_extract_text(data)
+                    if text is not None:
+                        return {"text": text, "error": None}
+                    last_error = f"{model}: {err}"
+                    # Bloqueo de contenido: no suele arreglarse cambiando modelo
+                    if err and err.startswith("blocked_"):
+                        return {"error": last_error[:300], "text": ""}
+                    continue
+            except Exception as e:
+                last_error = f"{model}: {str(e)[:200]}"
+                continue
+
+    return {"error": last_error[:300] or "gemini_all_models_failed", "text": ""}
 
 
 async def search_serp(query: str, timeout: int = 30) -> dict:
