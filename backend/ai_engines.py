@@ -16,10 +16,11 @@ from config import (
     ENABLE_SERP,
 )
 
-# Secundarios si el modelo principal devuelve 404 / no encontrado (Google renombra modelos con frecuencia)
+# Orden por defecto: Pro primero (mejor calidad); Flash al final si la clave no tiene Pro o hay 403/404.
 _GEMINI_MODEL_FALLBACKS = (
+    "gemini-2.5-pro",
+    "gemini-1.5-pro",
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
     "gemini-1.5-flash",
 )
 

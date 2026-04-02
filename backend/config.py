@@ -18,7 +18,7 @@ if env_path.exists():
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-# Modelo Gemini (vacío = orden de fallback en ai_engines). Ej: gemini-2.5-flash
+# Modelo Gemini (vacío = Pro→Flash en ai_engines). Ej: gemini-2.5-pro
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "").strip()
 
 # SERP API
