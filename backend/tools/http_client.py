@@ -35,10 +35,22 @@ DEFAULT_HEADERS = {
 def create_session(timeout: int = 20, max_connections: int = 10) -> tuple:
     """Return (connector, timeout_config, headers) for aiohttp.ClientSession."""
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-    # IPv6 roto en algunos hosts cloud → ClientConnectorError (errno 0, message '') .
-    # Desactivar con HTTP_IPV4_ONLY=0 si necesitas IPv6 explícito.
-    ipv4_only = os.getenv("HTTP_IPV4_ONLY", "1").strip().lower() in ("1", "true", "yes", "on")
-    fam = socket.AF_INET if ipv4_only else 0
+    # Default "auto" (dual stack). Force IPv4/IPv6 only via env when needed:
+    # HTTP_IP_MODE=ipv4|ipv6|auto (default auto)
+    # Backward compatible: HTTP_IPV4_ONLY=true/false
+    ip_mode = os.getenv("HTTP_IP_MODE", "auto").strip().lower()
+    legacy_ipv4_only = os.getenv("HTTP_IPV4_ONLY", "").strip().lower()
+    if legacy_ipv4_only in ("1", "true", "yes", "on"):
+        ip_mode = "ipv4"
+    elif legacy_ipv4_only in ("0", "false", "no", "off"):
+        ip_mode = "auto"
+
+    if ip_mode == "ipv4":
+        fam = socket.AF_INET
+    elif ip_mode == "ipv6":
+        fam = socket.AF_INET6
+    else:
+        fam = 0
     connector = aiohttp.TCPConnector(limit=max_connections, ssl=ssl_ctx, family=fam)
     timeout_config = aiohttp.ClientTimeout(total=timeout)
     return connector, timeout_config, DEFAULT_HEADERS
