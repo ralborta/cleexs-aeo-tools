@@ -66,7 +66,7 @@ FAST_MAX_PAGES = {
 TOOL_TIMEOUT_SEC = {
     "schema": 22,
     "axp": 22,
-    "ai_presence": 24,
+    "ai_presence": 36,
     "alerts": 24,
     "crawlability": 38,
     "robots_sitemap": 45,

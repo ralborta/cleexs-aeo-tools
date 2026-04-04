@@ -18,6 +18,9 @@ from ai_engines import (
     check_brand_mentioned, has_api_keys,
 )
 
+ENGINE_QUERY_TIMEOUT_SEC = 12
+ALT_QUERY_TIMEOUT_SEC = 8
+
 
 class AIPresenceTester:
 
@@ -83,77 +86,70 @@ class AIPresenceTester:
         prompt = f"Que es {brand} ({domain})? Que ofrece y es recomendable?"
         alt_prompt = f"Recomienda las mejores empresas o herramientas de {description}" if description else f"Que sabes sobre {domain}?"
 
-        tasks = {}
+        tasks = []
 
         if keys["openai"]:
-            tasks["ChatGPT"] = query_openai(prompt)
+            tasks.append(self._run_engine_query("ChatGPT", query_openai(prompt, timeout=ENGINE_QUERY_TIMEOUT_SEC), brand, domain))
         if keys["gemini"]:
-            tasks["Gemini"] = query_gemini(prompt)
+            tasks.append(self._run_engine_query("Gemini", query_gemini(prompt, timeout=ENGINE_QUERY_TIMEOUT_SEC), brand, domain))
         if keys["perplexity"]:
-            tasks["Perplexity"] = query_perplexity(prompt)
+            tasks.append(self._run_engine_query("Perplexity", query_perplexity(prompt, timeout=ENGINE_QUERY_TIMEOUT_SEC), brand, domain))
 
         if tasks:
-            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-            for engine_name, result in zip(tasks.keys(), results):
-                if isinstance(result, Exception):
-                    engines.append({
-                        "engine": engine_name,
-                        "status": "error",
-                        "mentioned": False,
-                        "response_preview": "",
-                        "snippet": "",
-                        "error": str(result)[:200],
-                    })
-                elif result.get("error"):
-                    engines.append({
-                        "engine": engine_name,
-                        "status": "error",
-                        "mentioned": False,
-                        "response_preview": "",
-                        "snippet": "",
-                        "error": result["error"],
-                    })
-                else:
-                    text = result.get("text", "")
-                    mention = check_brand_mentioned(text, brand, domain)
-                    citations = result.get("citations", [])
-                    domain_cited = any(domain.lower() in c.lower() for c in citations) if citations else False
-
-                    engines.append({
-                        "engine": engine_name,
-                        "status": "found" if mention["mentioned"] else "not_found",
-                        "mentioned": mention["mentioned"],
-                        "brand_found": mention["brand_found"],
-                        "domain_found": mention["domain_found"],
-                        "domain_cited": domain_cited,
-                        "response_preview": text[:300] + ("..." if len(text) > 300 else ""),
-                        "snippet": mention["snippet"],
-                        "citations": citations[:5] if citations else [],
-                    })
+            engines.extend(await asyncio.gather(*tasks))
 
         # Also query with alternative prompt for Perplexity (category search)
         if keys["perplexity"] and alt_prompt:
-            alt_result = await query_perplexity(alt_prompt)
-            if alt_result and not alt_result.get("error"):
-                text = alt_result.get("text", "")
-                mention = check_brand_mentioned(text, brand, domain)
-                citations = alt_result.get("citations", [])
-                domain_cited = any(domain.lower() in c.lower() for c in citations)
-
-                engines.append({
-                    "engine": "Perplexity (busqueda de categoria)",
-                    "status": "found" if mention["mentioned"] or domain_cited else "not_found",
-                    "mentioned": mention["mentioned"],
-                    "brand_found": mention["brand_found"],
-                    "domain_found": mention["domain_found"],
-                    "domain_cited": domain_cited,
-                    "response_preview": text[:300] + ("..." if len(text) > 300 else ""),
-                    "snippet": mention["snippet"],
-                    "citations": citations[:5] if citations else [],
-                    "query_used": alt_prompt,
-                })
+            alt_result = await self._run_engine_query(
+                "Perplexity (busqueda de categoria)",
+                query_perplexity(alt_prompt, timeout=ALT_QUERY_TIMEOUT_SEC),
+                brand,
+                domain,
+                query_used=alt_prompt,
+            )
+            engines.append(alt_result)
 
         return engines
+
+    async def _run_engine_query(self, engine_name: str, coro, brand: str, domain: str, query_used: str = "") -> dict:
+        try:
+            result = await coro
+        except Exception as e:
+            result = {"error": str(e)[:200], "text": "", "citations": []}
+
+        if not result or result.get("error"):
+            out = {
+                "engine": engine_name,
+                "status": "error",
+                "mentioned": False,
+                "response_preview": "",
+                "snippet": "",
+                "error": (result or {}).get("error", "unknown_error"),
+                "citations": [],
+            }
+            if query_used:
+                out["query_used"] = query_used
+            return out
+
+        text = result.get("text", "")
+        mention = check_brand_mentioned(text, brand, domain)
+        citations = result.get("citations", [])
+        domain_cited = any(domain.lower() in c.lower() for c in citations) if citations else False
+
+        out = {
+            "engine": engine_name,
+            "status": "found" if mention["mentioned"] or domain_cited else "not_found",
+            "mentioned": mention["mentioned"],
+            "brand_found": mention["brand_found"],
+            "domain_found": mention["domain_found"],
+            "domain_cited": domain_cited,
+            "response_preview": text[:300] + ("..." if len(text) > 300 else ""),
+            "snippet": mention["snippet"],
+            "citations": citations[:5] if citations else [],
+        }
+        if query_used:
+            out["query_used"] = query_used
+        return out
 
     def _analyze_signals(self, url: str, soup: BeautifulSoup, domain: str, brand: str) -> list:
         signals = []
