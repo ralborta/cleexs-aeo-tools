@@ -53,6 +53,30 @@ def _utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Preset "API-safe": evita jobs extremadamente largos que terminan en timeout del cliente.
+FAST_MAX_PAGES = {
+    "crawlability": 8,
+    "robots_sitemap": 18,
+    "freshness": 10,
+    "citations": 8,
+    "ai_overview": 6,
+    "duplicates": 8,
+}
+
+TOOL_TIMEOUT_SEC = {
+    "schema": 22,
+    "axp": 22,
+    "ai_presence": 24,
+    "alerts": 24,
+    "crawlability": 38,
+    "robots_sitemap": 45,
+    "freshness": 38,
+    "citations": 34,
+    "ai_overview": 30,
+    "duplicates": 34,
+}
+
+
 class RobotsGenRequest(BaseModel):
     url: str
     allow_ai: bool = True
@@ -85,10 +109,10 @@ async def run_analyze_all_impl(url: str) -> dict:
     output: dict = {}
 
     fast_results = await asyncio.gather(
-        _run_tool("schema", SchemaChecker().check(url)),
-        _run_tool("axp", AXPGenerator().generate(url)),
-        _run_tool("ai_presence", AIPresenceTester().test(url)),
-        _run_tool("alerts", MentionAlertAnalyzer().analyze(url)),
+        _run_tool_budgeted("schema", SchemaChecker().check(url)),
+        _run_tool_budgeted("axp", AXPGenerator().generate(url)),
+        _run_tool_budgeted("ai_presence", AIPresenceTester().test(url)),
+        _run_tool_budgeted("alerts", MentionAlertAnalyzer().analyze(url)),
         return_exceptions=True,
     )
     fast_names = ["schema", "axp", "ai_presence", "alerts"]
@@ -96,15 +120,15 @@ async def run_analyze_all_impl(url: str) -> dict:
         output[name] = _process_result(name, result)
 
     crawl_tools = [
-        ("crawlability", SiteCrawler(max_pages=15, max_depth=2).crawl(url)),
-        ("robots_sitemap", SiteAnalyzer(max_crawl_pages=50).analyze(url)),
-        ("freshness", ContentFreshnessChecker(max_pages=30).check(url)),
-        ("citations", QueryCitationTracker(max_pages=15).analyze(url)),
-        ("ai_overview", AIOverviewChecker(max_pages=10).check(url)),
-        ("duplicates", DuplicateContentFinder(max_pages=15).find(url)),
+        ("crawlability", SiteCrawler(max_pages=FAST_MAX_PAGES["crawlability"], max_depth=2).crawl(url)),
+        ("robots_sitemap", SiteAnalyzer(max_crawl_pages=FAST_MAX_PAGES["robots_sitemap"]).analyze(url)),
+        ("freshness", ContentFreshnessChecker(max_pages=FAST_MAX_PAGES["freshness"]).check(url)),
+        ("citations", QueryCitationTracker(max_pages=FAST_MAX_PAGES["citations"]).analyze(url)),
+        ("ai_overview", AIOverviewChecker(max_pages=FAST_MAX_PAGES["ai_overview"]).check(url)),
+        ("duplicates", DuplicateContentFinder(max_pages=FAST_MAX_PAGES["duplicates"]).find(url)),
     ]
     for name, coro in crawl_tools:
-        result = await _run_tool(name, coro)
+        result = await _run_tool_budgeted(name, coro)
         output[name] = _process_result(name, result)
 
     scores = []
@@ -173,6 +197,18 @@ async def _run_tool(name: str, coro):
     try:
         result = await coro
         return result
+    except Exception as e:
+        return {"error": str(e)[:200], "score": 0}
+
+
+async def _run_tool_budgeted(name: str, coro):
+    """Timeout por herramienta con resultado degradado en vez de colgar el job completo."""
+    budget = TOOL_TIMEOUT_SEC.get(name, 30)
+    try:
+        result = await asyncio.wait_for(coro, timeout=budget)
+        return result
+    except asyncio.TimeoutError:
+        return {"error": f"timeout_tool_{name}_{budget}s", "score": 0}
     except Exception as e:
         return {"error": str(e)[:200], "score": 0}
 
