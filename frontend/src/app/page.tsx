@@ -55,18 +55,55 @@ export default function Home() {
     setData(null);
 
     try {
-      const resp = await fetch(`${API_URL}/api/analyze-all`, {
+      const startResp = await fetch(`${API_URL}/api/analyze-all/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: inputUrl }),
       });
-      if (!resp.ok) {
-        const d = await resp.json();
-        throw new Error(d.detail || "Error al analizar");
+
+      let result: unknown;
+
+      if (startResp.status === 202) {
+        const startJson = (await startResp.json()) as { job_id?: string };
+        if (!startJson.job_id) throw new Error("Respuesta inválida del servidor");
+        const jobId = startJson.job_id;
+        for (;;) {
+          const jobResp = await fetch(`${API_URL}/api/analyze-all/jobs/${jobId}`);
+          if (!jobResp.ok) {
+            const d = await jobResp.json().catch(() => ({}));
+            throw new Error((d as { detail?: string }).detail || `Error ${jobResp.status}`);
+          }
+          const job = (await jobResp.json()) as {
+            job_status?: string;
+            error?: string;
+          };
+          if (job.job_status === "completed") {
+            const { job_status: _j, ...rest } = job as Record<string, unknown>;
+            result = rest;
+            break;
+          }
+          if (job.job_status === "failed") {
+            throw new Error(job.error || "Error en el análisis");
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      } else if (startResp.status === 404) {
+        const resp = await fetch(`${API_URL}/api/analyze-all`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: inputUrl }),
+        });
+        if (!resp.ok) {
+          const d = await resp.json();
+          throw new Error(d.detail || "Error al analizar");
+        }
+        result = await resp.json();
+      } else {
+        throw new Error(`Error al iniciar análisis (${startResp.status})`);
       }
-      const result = await resp.json();
+
       setData(result);
-      fetchHistory(); // Refresh history after new analysis
+      fetchHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error de conexion");
     } finally {

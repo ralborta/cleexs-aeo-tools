@@ -1,8 +1,11 @@
 import asyncio
+import uuid
+from datetime import datetime, timezone
 from urllib.parse import urlparse
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from tools.tool1_crawlability import SiteCrawler
@@ -43,6 +46,13 @@ class URLRequest(BaseModel):
     url: str
 
 
+ANALYZE_JOBS: dict[str, dict] = {}
+
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 class RobotsGenRequest(BaseModel):
     url: str
     allow_ai: bool = True
@@ -61,46 +71,42 @@ async def api_status():
 
 # ─── Full Analysis (all tools at once) ───
 
-@app.post("/api/analyze-all")
-async def analyze_all(request: URLRequest):
-    url = request.url.strip()
+
+def _normalize_analyze_url(raw: str) -> str:
+    url = raw.strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL es requerida")
     if not url.startswith("http"):
         url = "https://" + url
+    return url
 
-    output = {}
 
-    try:
-        # Phase 1 — single-page tools in parallel (each fetches only 1 page)
-        fast_results = await asyncio.gather(
-            _run_tool("schema", SchemaChecker().check(url)),
-            _run_tool("axp", AXPGenerator().generate(url)),
-            _run_tool("ai_presence", AIPresenceTester().test(url)),
-            _run_tool("alerts", MentionAlertAnalyzer().analyze(url)),
-            return_exceptions=True,
-        )
-        fast_names = ["schema", "axp", "ai_presence", "alerts"]
-        for name, result in zip(fast_names, fast_results):
-            output[name] = _process_result(name, result)
+async def run_analyze_all_impl(url: str) -> dict:
+    output: dict = {}
 
-        # Phase 2 — crawling tools ONE AT A TIME to avoid server overload
-        crawl_tools = [
-            ("crawlability", SiteCrawler(max_pages=15, max_depth=2).crawl(url)),
-            ("robots_sitemap", SiteAnalyzer(max_crawl_pages=50).analyze(url)),
-            ("freshness", ContentFreshnessChecker(max_pages=30).check(url)),
-            ("citations", QueryCitationTracker(max_pages=15).analyze(url)),
-            ("ai_overview", AIOverviewChecker(max_pages=10).check(url)),
-            ("duplicates", DuplicateContentFinder(max_pages=15).find(url)),
-        ]
-        for name, coro in crawl_tools:
-            result = await _run_tool(name, coro)
-            output[name] = _process_result(name, result)
+    fast_results = await asyncio.gather(
+        _run_tool("schema", SchemaChecker().check(url)),
+        _run_tool("axp", AXPGenerator().generate(url)),
+        _run_tool("ai_presence", AIPresenceTester().test(url)),
+        _run_tool("alerts", MentionAlertAnalyzer().analyze(url)),
+        return_exceptions=True,
+    )
+    fast_names = ["schema", "axp", "ai_presence", "alerts"]
+    for name, result in zip(fast_names, fast_results):
+        output[name] = _process_result(name, result)
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    crawl_tools = [
+        ("crawlability", SiteCrawler(max_pages=15, max_depth=2).crawl(url)),
+        ("robots_sitemap", SiteAnalyzer(max_crawl_pages=50).analyze(url)),
+        ("freshness", ContentFreshnessChecker(max_pages=30).check(url)),
+        ("citations", QueryCitationTracker(max_pages=15).analyze(url)),
+        ("ai_overview", AIOverviewChecker(max_pages=10).check(url)),
+        ("duplicates", DuplicateContentFinder(max_pages=15).find(url)),
+    ]
+    for name, coro in crawl_tools:
+        result = await _run_tool(name, coro)
+        output[name] = _process_result(name, result)
 
-    # Overall score
     scores = []
     for name in output:
         if isinstance(output[name], dict):
@@ -111,14 +117,56 @@ async def analyze_all(request: URLRequest):
     output["overall_score"] = round(sum(scores) / len(scores)) if scores else 0
     output["target_url"] = url
 
-    # Save to database
     try:
         domain = urlparse(url).netloc.replace("www.", "")
         await save_analysis(url, domain, output["overall_score"], output)
     except Exception:
-        pass  # Don't fail the response if DB save fails
+        pass
 
     return output
+
+
+async def _analyze_all_job_task(job_id: str, url: str) -> None:
+    try:
+        result = await run_analyze_all_impl(url)
+        result["job_status"] = "completed"
+        ANALYZE_JOBS[job_id] = result
+    except Exception as e:
+        ANALYZE_JOBS[job_id] = {
+            "job_status": "failed",
+            "error": str(e)[:500],
+            "failed_at": _utc_iso(),
+        }
+
+
+@app.post("/api/analyze-all/start")
+async def analyze_all_start(request: URLRequest):
+    url = _normalize_analyze_url(request.url)
+    job_id = str(uuid.uuid4())
+    ANALYZE_JOBS[job_id] = {"job_status": "running", "started_at": _utc_iso()}
+    asyncio.create_task(_analyze_all_job_task(job_id, url))
+    return JSONResponse(
+        status_code=202,
+        content={"job_id": job_id, "poll_url": f"/api/analyze-all/jobs/{job_id}"},
+    )
+
+
+@app.get("/api/analyze-all/jobs/{job_id}")
+async def analyze_all_job_status(job_id: str):
+    if job_id not in ANALYZE_JOBS:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return ANALYZE_JOBS[job_id]
+
+
+@app.post("/api/analyze-all")
+async def analyze_all(request: URLRequest):
+    url = _normalize_analyze_url(request.url)
+    try:
+        return await run_analyze_all_impl(url)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def _run_tool(name: str, coro):
