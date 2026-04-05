@@ -58,7 +58,7 @@ FAST_MAX_PAGES = {
     "crawlability": 8,
     "robots_sitemap": 18,
     "freshness": 10,
-    "citations": 8,
+    "citations": 6,
     "ai_overview": 6,
     "duplicates": 8,
 }
@@ -67,11 +67,11 @@ TOOL_TIMEOUT_SEC = {
     "schema": 22,
     "axp": 22,
     "ai_presence": 36,
-    "alerts": 24,
+    "alerts": 48,
     "crawlability": 38,
     "robots_sitemap": 45,
     "freshness": 38,
-    "citations": 34,
+    "citations": 72,
     "ai_overview": 30,
     "duplicates": 34,
 }

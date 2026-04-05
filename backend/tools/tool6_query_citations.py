@@ -145,49 +145,51 @@ class QueryCitationTracker:
 
     async def _check_citations(self, queries: list, brand: str, domain: str, keys: dict) -> list:
         """Send queries to AI engines and check for citations."""
-        results = []
+        # Modo análisis: hasta 5 consultas; varias en paralelo (semáforo evita rate limits).
+        to_run = queries[:5]
+        sem = asyncio.Semaphore(3)
 
-        for q in queries[:7]:
+        async def one_query(q: dict) -> dict:
             query_text = q["query"]
             query_results = {"query": query_text, "type": q["type"], "engines": []}
+            async with sem:
+                tasks = {}
+                if keys["perplexity"]:
+                    tasks["Perplexity"] = query_perplexity(query_text)
+                if keys["openai"]:
+                    tasks["ChatGPT"] = query_openai(query_text)
+                if keys["gemini"]:
+                    tasks["Gemini"] = query_gemini(query_text)
 
-            tasks = {}
-            if keys["perplexity"]:
-                tasks["Perplexity"] = query_perplexity(query_text)
-            if keys["openai"]:
-                tasks["ChatGPT"] = query_openai(query_text)
-            if keys["gemini"]:
-                tasks["Gemini"] = query_gemini(query_text)
+                if tasks:
+                    responses = await asyncio.gather(*tasks.values(), return_exceptions=True)
+                    for engine_name, resp in zip(tasks.keys(), responses):
+                        if isinstance(resp, Exception) or (isinstance(resp, dict) and resp.get("error")):
+                            error = str(resp) if isinstance(resp, Exception) else resp.get("error", "")
+                            query_results["engines"].append({
+                                "engine": engine_name,
+                                "mentioned": False,
+                                "cited": False,
+                                "error": error[:150],
+                            })
+                        else:
+                            text = resp.get("text", "")
+                            mention = check_brand_mentioned(text, brand, domain)
+                            citations = resp.get("citations", [])
+                            domain_cited = any(domain.lower() in c.lower() for c in citations)
 
-            if tasks:
-                responses = await asyncio.gather(*tasks.values(), return_exceptions=True)
-                for engine_name, resp in zip(tasks.keys(), responses):
-                    if isinstance(resp, Exception) or (isinstance(resp, dict) and resp.get("error")):
-                        error = str(resp) if isinstance(resp, Exception) else resp.get("error", "")
-                        query_results["engines"].append({
-                            "engine": engine_name,
-                            "mentioned": False,
-                            "cited": False,
-                            "error": error[:150],
-                        })
-                    else:
-                        text = resp.get("text", "")
-                        mention = check_brand_mentioned(text, brand, domain)
-                        citations = resp.get("citations", [])
-                        domain_cited = any(domain.lower() in c.lower() for c in citations)
+                            query_results["engines"].append({
+                                "engine": engine_name,
+                                "mentioned": mention["mentioned"],
+                                "cited": domain_cited,
+                                "snippet": mention["snippet"],
+                                "response_preview": text[:200] + ("..." if len(text) > 200 else ""),
+                                "citations": citations[:5] if citations else [],
+                            })
 
-                        query_results["engines"].append({
-                            "engine": engine_name,
-                            "mentioned": mention["mentioned"],
-                            "cited": domain_cited,
-                            "snippet": mention["snippet"],
-                            "response_preview": text[:200] + ("..." if len(text) > 200 else ""),
-                            "citations": citations[:5] if citations else [],
-                        })
+            return query_results
 
-            results.append(query_results)
-
-        return results
+        return list(await asyncio.gather(*[one_query(q) for q in to_run]))
 
     def _aggregate_engine_scores(self, citation_results: list, keys: dict) -> list:
         """Calculate per-engine citation scores."""

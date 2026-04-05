@@ -51,12 +51,12 @@ class MentionAlertAnalyzer:
         soup = BeautifulSoup(html, "lxml")
         brand_keywords = self._extract_brand_keywords(soup, brand, domain)
 
-        # Real AI engine checks
+        # Real AI engine checks + SERP en paralelo (misma fase de red externa)
         keys = has_api_keys()
-        ai_mentions = await self._check_ai_mentions(brand, domain, keys)
-
-        # Real SERP mentions
-        serp_mentions = await self._check_serp_mentions(brand, domain, keys)
+        ai_mentions, serp_mentions = await asyncio.gather(
+            self._check_ai_mentions(brand, domain, keys),
+            self._check_serp_mentions(brand, domain, keys),
+        )
 
         # Visibility signals (always available)
         visibility = self._check_visibility_signals(soup, brand)
@@ -90,13 +90,12 @@ class MentionAlertAnalyzer:
 
     async def _check_ai_mentions(self, brand: str, domain: str, keys: dict) -> list:
         """Query AI engines for real brand mentions."""
-        mentions = []
         prompts = [
             {"text": f"Que es {brand}? Es recomendable?", "type": "direct"},
             {"text": f"Recomienda empresas similares a {brand}", "type": "competitive"},
         ]
 
-        for prompt_info in prompts:
+        async def one_prompt(prompt_info: dict) -> list:
             prompt = prompt_info["text"]
             tasks = {}
             if keys["openai"]:
@@ -107,12 +106,13 @@ class MentionAlertAnalyzer:
                 tasks["Perplexity"] = query_perplexity(prompt)
 
             if not tasks:
-                continue
+                return []
 
+            out = []
             results = await asyncio.gather(*tasks.values(), return_exceptions=True)
             for engine_name, result in zip(tasks.keys(), results):
                 if isinstance(result, Exception):
-                    mentions.append({
+                    out.append({
                         "engine": engine_name,
                         "query": prompt,
                         "query_type": prompt_info["type"],
@@ -120,7 +120,7 @@ class MentionAlertAnalyzer:
                         "error": str(result)[:150],
                     })
                 elif result.get("error"):
-                    mentions.append({
+                    out.append({
                         "engine": engine_name,
                         "query": prompt,
                         "query_type": prompt_info["type"],
@@ -133,7 +133,7 @@ class MentionAlertAnalyzer:
                     citations = result.get("citations", [])
                     domain_cited = any(domain.lower() in c.lower() for c in citations)
 
-                    mentions.append({
+                    out.append({
                         "engine": engine_name,
                         "query": prompt,
                         "query_type": prompt_info["type"],
@@ -144,7 +144,12 @@ class MentionAlertAnalyzer:
                         "snippet": mention["snippet"],
                         "response_preview": text[:250] + ("..." if len(text) > 250 else ""),
                     })
+            return out
 
+        groups = await asyncio.gather(*[one_prompt(p) for p in prompts])
+        mentions = []
+        for g in groups:
+            mentions.extend(g)
         return mentions
 
     async def _check_serp_mentions(self, brand: str, domain: str, keys: dict) -> list:
@@ -158,12 +163,10 @@ class MentionAlertAnalyzer:
             f'"{brand}" review OR opinion',
         ]
 
-        mentions = []
-        for q in serp_queries[:3]:
+        async def one_serp(q: str) -> dict:
             result = await search_serp(q)
             if result.get("error"):
-                mentions.append({"query": q, "error": result["error"][:150], "results": []})
-                continue
+                return {"query": q, "error": result["error"][:150], "results": []}
 
             organic = result.get("organic_results", [])
             found_results = []
@@ -174,13 +177,13 @@ class MentionAlertAnalyzer:
                     "snippet": r.get("snippet", "")[:150],
                 })
 
-            mentions.append({
+            return {
                 "query": q,
                 "total_results": len(organic),
                 "results": found_results,
-            })
+            }
 
-        return mentions
+        return await asyncio.gather(*[one_serp(q) for q in serp_queries[:3]])
 
     def _extract_brand_keywords(self, soup: BeautifulSoup, brand: str, domain: str) -> list:
         keywords = [brand, domain]
