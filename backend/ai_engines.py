@@ -4,6 +4,7 @@ All functions return structured dicts and handle errors gracefully.
 """
 
 import json
+import time
 
 import aiohttp
 from config import (
@@ -146,9 +147,14 @@ async def query_gemini(prompt: str, timeout: int = 30) -> dict:
 
     last_error = ""
     models = _gemini_models_to_try()
+    deadline = time.monotonic() + max(1, int(timeout))
 
     async with aiohttp.ClientSession() as session:
         for model in models:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                last_error = f"gemini_timeout_total_{timeout}s"
+                break
             url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"{model}:generateContent?key={GEMINI_API_KEY}"
@@ -158,7 +164,7 @@ async def query_gemini(prompt: str, timeout: int = 30) -> dict:
                     url,
                     headers={"Content-Type": "application/json"},
                     json={"contents": [{"parts": [{"text": prompt}]}]},
-                    timeout=aiohttp.ClientTimeout(total=timeout),
+                    timeout=aiohttp.ClientTimeout(total=max(1, int(remaining))),
                 ) as resp:
                     body = await resp.text()
                     if resp.status != 200:

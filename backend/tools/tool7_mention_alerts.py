@@ -19,10 +19,14 @@ from ai_engines import (
     search_serp, check_brand_mentioned, has_api_keys,
 )
 
+ALERTS_FETCH_TIMEOUT_SEC = 12
+ALERTS_AI_TIMEOUT_SEC = 12
+ALERTS_SERP_TIMEOUT_SEC = 9
+
 
 class MentionAlertAnalyzer:
 
-    def __init__(self, timeout: int = 15):
+    def __init__(self, timeout: int = ALERTS_FETCH_TIMEOUT_SEC):
         self.timeout = timeout
 
     async def analyze(self, url: str) -> dict:
@@ -99,11 +103,11 @@ class MentionAlertAnalyzer:
             prompt = prompt_info["text"]
             tasks = {}
             if keys["openai"]:
-                tasks["ChatGPT"] = query_openai(prompt)
+                tasks["ChatGPT"] = query_openai(prompt, timeout=ALERTS_AI_TIMEOUT_SEC)
             if keys["gemini"]:
-                tasks["Gemini"] = query_gemini(prompt)
+                tasks["Gemini"] = query_gemini(prompt, timeout=ALERTS_AI_TIMEOUT_SEC)
             if keys["perplexity"]:
-                tasks["Perplexity"] = query_perplexity(prompt)
+                tasks["Perplexity"] = query_perplexity(prompt, timeout=ALERTS_AI_TIMEOUT_SEC)
 
             if not tasks:
                 return []
@@ -164,7 +168,7 @@ class MentionAlertAnalyzer:
         ]
 
         async def one_serp(q: str) -> dict:
-            result = await search_serp(q)
+            result = await search_serp(q, timeout=ALERTS_SERP_TIMEOUT_SEC)
             if result.get("error"):
                 return {"query": q, "error": result["error"][:150], "results": []}
 
