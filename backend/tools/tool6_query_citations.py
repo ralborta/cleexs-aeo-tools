@@ -21,6 +21,10 @@ from ai_engines import (
     check_brand_mentioned, has_api_keys,
 )
 
+CITATIONS_AI_TIMEOUT_SEC = 10
+CITATIONS_MAX_QUERIES = 4
+CITATIONS_MAX_CONCURRENCY = 2
+
 
 class QueryCitationTracker:
 
@@ -145,9 +149,9 @@ class QueryCitationTracker:
 
     async def _check_citations(self, queries: list, brand: str, domain: str, keys: dict) -> list:
         """Send queries to AI engines and check for citations."""
-        # Modo análisis: hasta 5 consultas; varias en paralelo (semáforo evita rate limits).
-        to_run = queries[:5]
-        sem = asyncio.Semaphore(3)
+        # Modo análisis: pocas consultas y timeout corto por engine para evitar timeout global.
+        to_run = queries[:CITATIONS_MAX_QUERIES]
+        sem = asyncio.Semaphore(CITATIONS_MAX_CONCURRENCY)
 
         async def one_query(q: dict) -> dict:
             query_text = q["query"]
@@ -155,11 +159,11 @@ class QueryCitationTracker:
             async with sem:
                 tasks = {}
                 if keys["perplexity"]:
-                    tasks["Perplexity"] = query_perplexity(query_text)
+                    tasks["Perplexity"] = query_perplexity(query_text, timeout=CITATIONS_AI_TIMEOUT_SEC)
                 if keys["openai"]:
-                    tasks["ChatGPT"] = query_openai(query_text)
+                    tasks["ChatGPT"] = query_openai(query_text, timeout=CITATIONS_AI_TIMEOUT_SEC)
                 if keys["gemini"]:
-                    tasks["Gemini"] = query_gemini(query_text)
+                    tasks["Gemini"] = query_gemini(query_text, timeout=CITATIONS_AI_TIMEOUT_SEC)
 
                 if tasks:
                     responses = await asyncio.gather(*tasks.values(), return_exceptions=True)

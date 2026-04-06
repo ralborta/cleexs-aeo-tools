@@ -20,6 +20,12 @@ class DuplicateContentFinder:
         self.max_pages = max_pages
 
     async def find(self, url: str) -> dict:
+        try:
+            return await self._find_impl(url)
+        except Exception as e:
+            return self._error_result(url, str(e)[:200])
+
+    async def _find_impl(self, url: str) -> dict:
         if not url.startswith("http"):
             url = "https://" + url
 
@@ -72,11 +78,20 @@ class DuplicateContentFinder:
                     tag.decompose()
                 # Remove common boilerplate by class/id patterns
                 for tag in body.find_all(attrs={"class": True}):
-                    classes = " ".join(tag.get("class", []))
+                    attrs = getattr(tag, "attrs", {}) or {}
+                    classes_attr = attrs.get("class") or []
+                    if isinstance(classes_attr, str):
+                        classes_list = [classes_attr]
+                    elif isinstance(classes_attr, (list, tuple, set)):
+                        classes_list = [str(x) for x in classes_attr if x]
+                    else:
+                        classes_list = []
+                    classes = " ".join(classes_list)
                     if any(kw in classes.lower() for kw in ["sidebar", "widget", "menu", "breadcrumb", "cookie", "popup", "modal", "banner", "social", "share", "comment"]):
                         tag.decompose()
                 for tag in body.find_all(attrs={"id": True}):
-                    tag_id = tag.get("id", "")
+                    attrs = getattr(tag, "attrs", {}) or {}
+                    tag_id = str(attrs.get("id") or "")
                     if any(kw in tag_id.lower() for kw in ["sidebar", "widget", "menu", "cookie", "popup", "modal", "banner"]):
                         tag.decompose()
 
@@ -103,7 +118,9 @@ class DuplicateContentFinder:
                 # Follow links (sorted for deterministic order)
                 new_links = set()
                 for a in soup.find_all("a", href=True):
-                    href = a["href"]
+                    href = a.get("href")
+                    if not href:
+                        continue
                     full = urljoin(current, href)
                     fp = urlparse(full)
                     if fp.netloc == domain:
@@ -301,3 +318,29 @@ class DuplicateContentFinder:
         score -= min(15, med_sim * 3)
 
         return max(0, min(100, score))
+
+    def _error_result(self, url: str, error: str) -> dict:
+        parsed = urlparse(url if url.startswith("http") else f"https://{url}")
+        domain = parsed.netloc
+        return {
+            "url": url,
+            "domain": domain,
+            "pages_analyzed": 0,
+            "duplicates": [],
+            "similar_pages": [],
+            "summary": {
+                "total_pages": 0,
+                "total_words": 0,
+                "avg_words_per_page": 0,
+                "exact_duplicates": 0,
+                "similar_pages": 0,
+                "unique_pages": 0,
+                "duplicate_groups": 0,
+                "similar_pairs": 0,
+                "uniqueness_pct": 0,
+            },
+            "suggestions": [],
+            "score": 0,
+            "pages": [],
+            "error": error,
+        }
